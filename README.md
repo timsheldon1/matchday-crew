@@ -3,7 +3,7 @@
 Explainable, personalised match intelligence from a team of AI agents.
 Built for the Microsoft + Premier League *Inside the Game* Developer Hackathon (2026).
 
-> Status: generator, Analyst and the AI crew (Explainer, Storyteller, Recapper on Microsoft Foundry) are working. The React overlay and Personalizer come next.
+> Status: generator, Analyst, AI crew (Explainer, Storyteller, Recapper on Microsoft Foundry) and the live React overlay are working. Next: Azure deployment and the demo video.
 
 ## Pipeline
 
@@ -18,7 +18,7 @@ Data (synthetic events) -> Analyst (stats, key moments) -> Explainer (why it mat
 The generator and Analyst have zero dependencies. Needs Node 22 or newer (required by the Foundry SDK).
 
 ```bash
-npm test                                          # 36 tests: generator, Analyst and crew orchestration
+npm test                                          # 44 tests: generator, Analyst, crew, team shape and voice
 node src/cli.js generate --seed 42                # writes data/match-NNS-KLS-42.json and prints a box score
 node src/cli.js stats --seed 7 --home RVU --away HLA
 node src/cli.js stream --seed 42 --speed 30       # live NDJSON on stdout, 90 minutes in ~3 minutes
@@ -127,6 +127,36 @@ The server can stream the commentary too: `GET /matches/42/stream?speed=30&crew=
    az role assignment create --role "Azure AI User" --assignee-object-id <your-user-object-id> --assignee-principal-type User --scope <foundry-resource-id>
    ```
    Your object id: `az ad signed-in-user show --query id -o tsv`. The resource id is on the resource's Overview page under JSON view.
+
+## Live overlay (React)
+
+`web/` is a Vite + React app that plays the match live from the server stream and shows what the crew produces:
+
+- **Pitch view** with all 22 players in club colours and shirt numbers, the ball and the player on it, a Names toggle, sprint and shot-speed tags, and a broadcast lower third for big AI lines. Player positions come from a team shape model (`web/src/teamShape.js`): each team's 4-3-3 block slides with the ball, the team in possession pushes up and spreads wide, the defending team drops and narrows, and the nearest defender steps in to press. The generator only tracks the ball, so these positions are a realistic simulation, not tracking data
+- **Voice commentary** (Voice button): big moments and recaps are spoken in English, Swahili or Japanese with Azure AI Speech neural voices (`en-GB-RyanNeural`, `sw-KE-RafikiNeural`, `ja-JP-KeitaNeural`), one line at a time so the voice never falls behind. If Speech is not configured, the browser's own voice is used where one exists
+- **Score bar** with clock, live momentum meter and a control vs chaos badge
+- **Match story feed:** every Analyst moment appears instantly, then the AI line fills in a few seconds later. Each card shows whether it came from the AI or a template, and how long the crew took
+- **Personalisation:** English, Swahili or Japanese at the flip of a switch; Fan view (story) or Analyst view (why it matters, tactical angle, key numbers, confidence); follow a club; player focus mode that tracks one player on the pitch and filters the story to their moments
+- **Momentum timeline** with goals marked, live stats bars, top-rated players, and an AI crew panel showing the Analyst to Explainer to Storyteller handoff with status and latency
+- **Recap pop-up** at half time and full time from the Recapper agent
+
+```bash
+npm run build     # builds the overlay into web/dist
+npm start         # serves the API and the overlay on http://localhost:4000
+```
+
+For overlay development with hot reload, run `npm start` in one terminal and `npm run web:dev` in another, then open http://localhost:5173.
+
+### Voice setup (Azure AI Speech)
+
+Speech uses the same Foundry resource and the same Entra ID sign-in as the agents. Add to `.env`:
+
+```bash
+SPEECH_REGION=<your resource region, e.g. eastus2>
+SPEECH_RESOURCE_ID=/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.CognitiveServices/accounts/<resource>
+```
+
+Then `npm run voice:check` writes a test MP3 per language to `data/`. If it returns 401, give yourself the **Cognitive Services Speech User** role on the resource (same command as in Azure setup, with that role name), or set `SPEECH_KEY` in `.env` as a fallback.
 
 ## Data and IP
 

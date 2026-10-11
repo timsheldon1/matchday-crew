@@ -17,7 +17,11 @@
     "crew:check": "node src/crew-cli.js check",
     "crew:deploy": "node src/crew-cli.js deploy",
     "crew:live": "node src/crew-cli.js live --seed 42 --speed 40 --langs en,sw,ja",
-    "crew:offline": "node src/crew-cli.js live --seed 42 --speed 200 --offline"
+    "crew:offline": "node src/crew-cli.js live --seed 42 --speed 200 --offline",
+    "build": "cd web && npm install && npm run build",
+    "start": "node src/server.js",
+    "web:dev": "cd web && npm run dev",
+    "voice:check": "node src/crew-cli.js voice"
   },
   "license": "MIT",
   "dependencies": {

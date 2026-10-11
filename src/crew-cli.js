@@ -5,12 +5,15 @@
 //   node src/crew-cli.js deploy                        register the agents in your Foundry project
 //   node src/crew-cli.js live --seed 42 --speed 40 --langs en,sw,ja --persona casual
 //   node src/crew-cli.js live --seed 42 --offline      same, without Azure (template fallbacks only)
+//   node src/crew-cli.js voice                         test Azure AI Speech in all three languages (writes MP3s)
 import { generateMatch } from './generator.js';
 import { createAnalyst, analyseMatch } from './analyst.js';
 import { replay } from './stream.js';
 import { createCrew } from './agents/crew.js';
 import { createFoundryLLM, loadEnv } from './agents/foundry.js';
 import { EXPLAINER } from './agents/definitions.js';
+import { createVoice } from './voice.js';
+import { writeFileSync, mkdirSync } from 'node:fs';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -95,8 +98,29 @@ async function main() {
         `median latency ${s.medianLatencyMs ?? '-'} ms, p90 ${s.p90LatencyMs ?? '-'} ms, mode ${s.mode}.`);
       break;
     }
+    case 'voice': {
+      loadEnv();
+      const voice = await createVoice();
+      if (!voice.enabled) throw new Error(`${voice.reason}. Add SPEECH_REGION (and SPEECH_RESOURCE_ID) to .env.`);
+      console.log(`Azure AI Speech, region ${voice.region}, auth ${voice.mode}`);
+      const lines = {
+        en: 'Goal! Kwame Rojas scores, and Kisumu Lakeside lead one nil.',
+        sw: 'Goli! Kwame Rojas anafunga, na Kisumu Lakeside wanaongoza bao moja kwa bila.',
+        ja: 'ゴール！Kwame Rojasが決めて、Kisumu Lakesideが先制！',
+      };
+      mkdirSync('data', { recursive: true });
+      for (const [lang, text] of Object.entries(lines)) {
+        const t0 = Date.now();
+        const audio = await voice.synthesize(text, lang);
+        const file = `data/voice-check-${lang}.mp3`;
+        writeFileSync(file, audio);
+        console.log(`${c.green}OK${c.reset} ${lang} ${audio.length} bytes in ${Date.now() - t0} ms -> ${file}`);
+      }
+      console.log('Open the MP3 files in the data folder to listen.');
+      break;
+    }
     default:
-      console.log('Commands: check | deploy | live   (see the top of src/crew-cli.js)');
+      console.log('Commands: check | deploy | live | voice   (see the top of src/crew-cli.js)');
   }
 }
 

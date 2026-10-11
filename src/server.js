@@ -9,15 +9,21 @@
 //   GET /matches/:seed/analysis                     all key moments + final stats
 //   Stream options: &crew=1&langs=en,sw,ja&persona=casual  adds AI `commentary` events from the agent crew
 //   (uses Microsoft Foundry when FOUNDRY_PROJECT_ENDPOINT is set in .env, otherwise template fallbacks)
+//   GET /voice                                      is Azure AI Speech voice available?
+//   GET /tts?lang=sw&text=...                       spoken commentary as MP3 (Azure AI Speech)
 //
 // Run: node src/server.js [--port 4000]
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { extname, join, normalize } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { generateMatch } from './generator.js';
 import { replay } from './stream.js';
 import { CLUBS } from './teams.js';
 import { createAnalyst, analyseMatch } from './analyst.js';
 import { createCrew } from './agents/crew.js';
 import { createFoundryLLM, loadEnv } from './agents/foundry.js';
+import { createVoice, VOICES } from './voice.js';
 
 // Connect to Foundry once at start-up. If it is not configured the crew runs on templates.
 let llm = null;
@@ -28,6 +34,18 @@ if (env.endpoint) {
 } else {
   console.log('Crew running offline (no FOUNDRY_PROJECT_ENDPOINT in .env)');
 }
+const voice = await createVoice();
+console.log(voice.enabled ? `Voice: Azure AI Speech (${voice.region}, ${voice.mode})` : `Voice: browser fallback only (${voice.reason})`);
+
+// Simple guard so a public deployment cannot be used as a free text-to-speech service.
+const ttsHits = [];
+function ttsAllowed() {
+  const now = Date.now();
+  while (ttsHits.length && now - ttsHits[0] > 60000) ttsHits.shift();
+  if (ttsHits.length >= 40) return false;
+  ttsHits.push(now);
+  return true;
+}
 
 const portArg = process.argv.indexOf('--port');
 const PORT = Number(portArg > -1 ? process.argv[portArg + 1] : process.env.PORT ?? 4000);
@@ -37,6 +55,24 @@ function getMatch(seed, home, away) {
   const key = `${seed}:${home}:${away}`;
   if (!cache.has(key)) cache.set(key, generateMatch({ seed, home, away }));
   return cache.get(key);
+}
+
+// The built React overlay (npm run build in web/) is served from the same server.
+const WEB_DIST = fileURLToPath(new URL('../web/dist/', import.meta.url));
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json' };
+
+async function serveStatic(pathname, res) {
+  const rel = normalize(pathname).replace(/^([/\\])+/, '');
+  if (rel.includes('..')) return false;
+  for (const file of [join(WEB_DIST, rel), join(WEB_DIST, 'index.html')]) {
+    try {
+      const body = await readFile(file);
+      res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream' });
+      res.end(body);
+      return true;
+    } catch { /* try next */ }
+  }
+  return false;
 }
 
 function send(res, status, body) {
@@ -54,6 +90,22 @@ const server = createServer(async (req, res) => {
   try {
     if (url.pathname === '/health') return send(res, 200, { ok: true });
     if (url.pathname === '/clubs') return send(res, 200, Object.values(CLUBS));
+    if (url.pathname === '/voice') return send(res, 200, { enabled: voice.enabled, mode: voice.mode ?? null, voices: VOICES });
+    if (url.pathname === '/tts') {
+      const lang = url.searchParams.get('lang') ?? 'en';
+      const text = (url.searchParams.get('text') ?? '').trim();
+      if (!voice.enabled) return send(res, 503, { error: 'voice not configured' });
+      if (!VOICES[lang] || !text || text.length > 600) return send(res, 400, { error: 'bad request' });
+      if (!ttsAllowed()) return send(res, 429, { error: 'too many requests' });
+      try {
+        const audio = await voice.synthesize(text, lang);
+        res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'public, max-age=86400' });
+        return res.end(audio);
+      } catch (err) {
+        console.warn(`[voice] ${err.message}`);
+        return send(res, 502, { error: 'speech failed' });
+      }
+    }
 
     if (parts[0] === 'matches' && parts[1]) {
       const home = url.searchParams.get('home') ?? 'NNS';
@@ -107,7 +159,8 @@ const server = createServer(async (req, res) => {
         return;
       }
     }
-    send(res, 404, { error: 'Not found' });
+    if (req.method === 'GET' && (await serveStatic(url.pathname, res))) return;
+    send(res, 404, { error: 'Not found. Build the overlay with: cd web && npm install && npm run build' });
   } catch (err) {
     send(res, 400, { error: err.message });
   }

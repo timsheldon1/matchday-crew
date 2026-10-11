@@ -71,7 +71,7 @@ export function fallbackExplanation(moment) {
   if (f.speedKmh != null) bits.push(`${f.speedKmh} km/h`);
   return {
     why: moment.headline,
-    tacticalAngle: bits.length ? bits.join(', ') : 'See live stats.',
+    tacticalAngle: '',
     keyNumbers: bits.slice(0, 3),
     confidence: 'low',
   };
