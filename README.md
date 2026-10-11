@@ -3,7 +3,7 @@
 Explainable, personalised match intelligence from a team of AI agents.
 Built for the Microsoft + Premier League *Inside the Game* Developer Hackathon (2026).
 
-> Status: the **synthetic match generator** and the **Analyst** are done. The AI agents (Explainer, Storyteller, Personalizer) and the overlay UI come next.
+> Status: generator, Analyst and the AI crew (Explainer, Storyteller, Recapper on Microsoft Foundry) are working. The React overlay and Personalizer come next.
 
 ## Pipeline
 
@@ -15,10 +15,10 @@ Data (synthetic events) -> Analyst (stats, key moments) -> Explainer (why it mat
 
 ## Synthetic match generator
 
-Zero dependencies. Needs Node 20 or newer.
+The generator and Analyst have zero dependencies. Needs Node 22 or newer (required by the Foundry SDK).
 
 ```bash
-npm test                                          # 29 tests across the generator and the Analyst
+npm test                                          # 36 tests: generator, Analyst and crew orchestration
 node src/cli.js generate --seed 42                # writes data/match-NNS-KLS-42.json and prints a box score
 node src/cli.js stats --seed 7 --home RVU --away HLA
 node src/cli.js stream --seed 42 --speed 30       # live NDJSON on stdout, 90 minutes in ~3 minutes
@@ -85,6 +85,48 @@ The generator simulates a hidden momentum value that the Analyst never sees. Ove
 - **72%** of its momentum swing calls point at the team that really was on top
 
 Run `node src/cli.js accuracy --n 100` to reproduce.
+
+## AI crew (Microsoft Foundry)
+
+Three prompt agents run on a `gpt-5-mini` deployment in Microsoft Foundry, registered and versioned in the project so they show up in the Foundry portal:
+
+| Agent | Input | Output |
+|---|---|---|
+| `matchday-explainer` | One key moment from the Analyst plus live context | Why it matters, a tactical angle, the key numbers, a confidence level |
+| `matchday-storyteller` | The moment, the Explainer's insight, persona, languages, lines already on screen | One broadcast line per language (English, Swahili, Japanese) |
+| `matchday-recapper` | Half-time or full-time stats, top players, the key moments and their explanations | A short recap and player of the match in each language |
+
+`src/agents/crew.js` orchestrates them around a shared match state:
+
+- **Handoffs:** Analyst (code) to Explainer to Storyteller, with the Recapper at half time and full time
+- **Shared state:** every agent sees recent insights and the lines already on screen, so commentary does not repeat
+- **Live priorities:** a priority queue handles goals and big moments first and drops low-value moments when the crew falls behind live play (goals and recaps are never dropped)
+- **Guardrails:** strict JSON schema output, plus a grounding check that rejects any number not present in the Analyst's evidence. A rejected answer gets one retry with feedback
+- **Recovery:** on a timeout, an error or an ungrounded answer, the crew shows template text in all three languages so the screen never goes blank, and records what happened in a crew report (calls ok, retries, fallbacks, latency)
+- **Two call paths:** registered Foundry agents first; if they are not deployed, direct model calls with the same instructions
+
+```bash
+npm run crew:offline       # full match with template fallbacks, no Azure needed
+npm run crew:check         # one test call to Foundry
+npm run crew:deploy        # register the three agents in your Foundry project
+npm run crew:live          # full match with live AI commentary in English, Swahili and Japanese
+```
+
+The server can stream the commentary too: `GET /matches/42/stream?speed=30&crew=1&langs=en,sw,ja&persona=analyst` adds `commentary` events and a final `crew_report`.
+
+### Azure setup
+
+1. Create a Foundry project at ai.azure.com and deploy `gpt-5-mini` (we named the deployment `matchday-mini`).
+2. Copy `.env.example` to `.env` and set `FOUNDRY_PROJECT_ENDPOINT` and `FOUNDRY_MODEL_DEPLOYMENT`.
+3. Sign in with the Azure CLI. Auth is Microsoft Entra ID, so there are no API keys in the code:
+   ```bash
+   az login --tenant <your-tenant-id> --use-device-code
+   ```
+4. If `crew:check` returns 401 or 403, give yourself the **Azure AI User** role on the Foundry resource:
+   ```bash
+   az role assignment create --role "Azure AI User" --assignee-object-id <your-user-object-id> --assignee-principal-type User --scope <foundry-resource-id>
+   ```
+   Your object id: `az ad signed-in-user show --query id -o tsv`. The resource id is on the resource's Overview page under JSON view.
 
 ## Data and IP
 
