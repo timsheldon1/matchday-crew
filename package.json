@@ -1,0 +1,17 @@
+{
+  "name": "matchday-crew",
+  "version": "0.1.0",
+  "description": "Synthetic football match event generator for the Matchday Crew multi-agent project",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "generate": "node src/cli.js generate --seed 42",
+    "stats": "node src/cli.js stats --seed 42",
+    "stream": "node src/cli.js stream --seed 42 --speed 30",
+    "calibrate": "node src/cli.js calibrate --n 200",
+    "serve": "node src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "license": "MIT"
+}
