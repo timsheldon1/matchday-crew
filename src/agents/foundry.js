@@ -68,6 +68,14 @@ export async function createFoundryLLM({ endpoint, deployment, mode = 'agent', c
 
   return {
     name: 'foundry',
+
+    // One tiny request at start-up so the first real moment does not pay for sign-in,
+    // token fetch and connection setup (that took about 10 s on the first call).
+    async warmup() {
+      const t0 = Date.now();
+      await openai.responses.create({ model: deployment, input: 'ok', max_output_tokens: 16, reasoning: { effort: 'minimal' } });
+      return Date.now() - t0;
+    },
     deployment,
     get mode() { return agentModeWorks ? 'agent' : 'direct'; },
 

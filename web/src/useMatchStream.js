@@ -20,6 +20,7 @@ const initial = {
   feed: [], // analyst moments, filled in by crew commentary when it arrives
   tags: [], // short-lived pitch tags (speed alerts, rocket shots)
   lastCommentary: null,
+  lastQuick: null, // big moment with instant template lines (goal, penalty, red card)
   recap: null,
   crewReport: null,
   error: null,
@@ -79,6 +80,7 @@ function reducer(state, action) {
       return {
         ...state,
         tags,
+        lastQuick: m.quickLines ? m : state.lastQuick,
         feed: inFeed ? [{ moment: m, commentary: null }, ...state.feed].slice(0, 60) : state.feed,
       };
     }

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateMatch } from '../src/generator.js';
 import { createAnalyst } from '../src/analyst.js';
-import { createCrew } from '../src/agents/crew.js';
+import { createCrew, cleanLine } from '../src/agents/crew.js';
 import { ungroundedNumbers } from '../src/agents/grounding.js';
 import { EXPLAINER, STORYTELLER, RECAP } from '../src/agents/definitions.js';
 
@@ -26,7 +26,7 @@ function fakeLLM({ fail = new Set(), invent = false, delayMs = 1 } = {}) {
         };
       }
       if (agent === STORYTELLER) {
-        return { lines: payload.languages.map((l) => ({ lang: l.code, text: `[${l.code}] ${payload.insight}` })) };
+        return { lines: payload.languages.map((l) => ({ lang: l.code, text: `[${l.code}] ${payload.whyItMatters}` })) };
       }
       if (agent === RECAP) {
         return { recaps: payload.languages.map((l) => ({ lang: l.code, headline: `${l.code} recap`, recap: 'A good game.', playerOfTheMatch: payload.topPlayers[0].name })) };
@@ -66,7 +66,7 @@ test('Storyteller receives the Explainer insight (handoff) and recent lines (sha
   const llm = fakeLLM();
   const { outputs } = await runMatch(llm, { maxConcurrent: 1, maxBacklog: 1000 });
   const stories = llm.calls.filter((c) => c.agent === STORYTELLER.name);
-  assert.ok(stories.every((c) => typeof c.payload.insight === 'string' && c.payload.insight.length));
+  assert.ok(stories.every((c) => typeof c.payload.whyItMatters === 'string' && c.payload.whyItMatters.length));
   assert.ok(stories.at(-1).payload.alreadyOnScreen.length > 0);
   assert.ok(outputs.every((o) => o.agents.every((a) => a.status === 'ok')));
 });
@@ -98,4 +98,17 @@ test('when the crew falls behind, low-importance moments are dropped but goals n
   const goals = match.events.filter((e) => e.type === 'goal').length;
   assert.equal(outputs.filter((o) => o.type === 'goal').length, goals);
   assert.ok(crew.stats().dropped > 0);
+});
+
+test('persona and language labels are stripped from commentary lines', () => {
+  assert.equal(cleanLine('Analyst: Riverside United seize initiative.'), 'Riverside United seize initiative.');
+  assert.equal(cleanLine('[Fan] — What a goal!'), 'What a goal!');
+  assert.equal(cleanLine('Mchambuzi: Riverside wanatawala.'), 'Riverside wanatawala.');
+  assert.equal(cleanLine('アナリスト：Riverside Unitedが主導権。'), 'Riverside Unitedが主導権。');
+  assert.equal(cleanLine('Insight: Riverside United seize initiative.'), 'Riverside United seize initiative.');
+  assert.equal(cleanLine('**Key insight** — Lakeside press higher.'), 'Lakeside press higher.');
+  assert.equal(cleanLine('Ufahamu: Lakeside wanabana juu.'), 'Lakeside wanabana juu.');
+  assert.equal(cleanLine('洞察：Lakesideが前から圧力。'), 'Lakesideが前から圧力。');
+  assert.equal(cleanLine('Insightful passing from Rojas.'), 'Insightful passing from Rojas.'); // a real sentence is kept
+  assert.equal(cleanLine('Analysts agree this matters.'), 'Analysts agree this matters.');
 });

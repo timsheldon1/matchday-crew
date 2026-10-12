@@ -3,7 +3,7 @@
 Explainable, personalised match intelligence from a team of AI agents.
 Built for the Microsoft + Premier League *Inside the Game* Developer Hackathon (2026).
 
-> Status: generator, Analyst, AI crew (Explainer, Storyteller, Recapper on Microsoft Foundry) and the live React overlay are working. Next: Azure deployment and the demo video.
+> Status: generator, Analyst, AI crew (Explainer, Storyteller, Recapper on Microsoft Foundry), live React overlay with voice, and Azure Container Apps deployment are in place.
 
 ## Pipeline
 
@@ -157,6 +157,22 @@ SPEECH_RESOURCE_ID=/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.
 ```
 
 Then `npm run voice:check` writes a test MP3 per language to `data/`. If it returns 401, give yourself the **Cognitive Services Speech User** role on the resource (same command as in Azure setup, with that role name), or set `SPEECH_KEY` in `.env` as a fallback.
+
+## Deployment (Azure Container Apps)
+
+```
+git push  ->  GitHub Actions: npm test, build image  ->  ghcr.io/timsheldon1/matchday-crew
+                                                              |
+                     Azure Container Apps (scale 0 to 2)  <---+
+                       | managed identity, no keys
+                       +--> Microsoft Foundry agents (Azure AI User role)
+                       +--> Azure AI Speech (Cognitive Services Speech User role)
+```
+
+- `Dockerfile` builds the overlay and the Node server into one small image
+- `.github/workflows/container.yml` runs all tests, then publishes the image on every push to `main`
+- `deploy/azure-deploy.ps1` creates or updates the Container App, turns on a system-assigned managed identity and grants it the two roles. Run it again to roll out a new image
+- Cost guard: at most `MAX_CREW_STREAMS` (default 4) matches get live AI commentary at once; extra viewers still get the match with template commentary. Text to speech is rate limited
 
 ## Data and IP
 

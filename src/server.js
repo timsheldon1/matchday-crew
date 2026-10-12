@@ -24,6 +24,7 @@ import { createAnalyst, analyseMatch } from './analyst.js';
 import { createCrew } from './agents/crew.js';
 import { createFoundryLLM, loadEnv } from './agents/foundry.js';
 import { createVoice, VOICES } from './voice.js';
+import { fallbackLine } from './agents/fallback.js';
 
 // Connect to Foundry once at start-up. If it is not configured the crew runs on templates.
 let llm = null;
@@ -35,6 +36,17 @@ if (env.endpoint) {
   console.log('Crew running offline (no FOUNDRY_PROJECT_ENDPOINT in .env)');
 }
 const voice = await createVoice();
+// Warm up in the background so the server starts instantly but the first match is not slow.
+if (llm) llm.warmup().then((ms) => console.log(`Crew warmed up (${ms} ms)`)).catch((err) => console.warn(`Crew warm-up failed: ${err.message.split('\n')[0]}`));
+if (voice.enabled) voice.warmup().then((ms) => console.log(`Voice warmed up (${ms} ms)`)).catch((err) => console.warn(`Voice warm-up failed: ${err.message}`));
+
+// Cost guard for a public deployment: only a few matches at a time get live AI commentary.
+// Extra viewers still get the full match, stats and template commentary.
+const MAX_CREW_STREAMS = Number(process.env.MAX_CREW_STREAMS ?? 4);
+let activeCrewStreams = 0;
+
+// Moments big enough to be called out instantly (by voice and on screen) while the AI line is written.
+const INSTANT = new Set(['goal', 'penalty_awarded', 'red_card']);
 console.log(voice.enabled ? `Voice: Azure AI Speech (${voice.region}, ${voice.mode})` : `Voice: browser fallback only (${voice.reason})`);
 
 // Simple guard so a public deployment cannot be used as a free text-to-speech service.
@@ -130,10 +142,21 @@ const server = createServer(async (req, res) => {
         // The Analyst replays silently up to the resume point so its state is correct.
         const analyst = createAnalyst(match.meta);
         for (const ev of match.events) { if (ev.seq > from) break; analyst.ingest(ev); }
-        const crew = url.searchParams.get('crew') === '1'
+        const wantsCrew = url.searchParams.get('crew') === '1';
+        const crewSlot = wantsCrew && llm && activeCrewStreams < MAX_CREW_STREAMS;
+        if (crewSlot) {
+          activeCrewStreams++;
+          let released = false;
+          const release = () => { if (!released) { released = true; activeCrewStreams--; } };
+          req.on('close', release);
+          res.on('finish', release);
+        } else if (wantsCrew && llm) {
+          res.write(`event: notice\ndata: ${JSON.stringify({ message: 'AI crew is busy with other matches; showing template commentary.' })}\n\n`);
+        }
+        const crew = wantsCrew
           ? createCrew({
             meta: match.meta,
-            llm,
+            llm: crewSlot ? llm : null,
             languages: (url.searchParams.get('langs') ?? 'en').split(','),
             persona: url.searchParams.get('persona') ?? 'casual',
             onOutput: (o) => { if (!ac.signal.aborted) res.write(`event: commentary\ndata: ${JSON.stringify(o)}\n\n`); },
@@ -143,7 +166,10 @@ const server = createServer(async (req, res) => {
           // id lets a client reconnect and resume where it left off (Last-Event-ID)
           res.write(`id: ${ev.seq}\nevent: match_event\ndata: ${JSON.stringify(ev)}\n\n`);
           for (const m of analyst.ingest(ev)) {
-            res.write(`event: moment\ndata: ${JSON.stringify(m)}\n\n`);
+            const quickLines = INSTANT.has(m.type)
+              ? Object.fromEntries(['en', 'sw', 'ja'].map((l) => [l, fallbackLine(m, l, match.meta)]))
+              : null;
+            res.write(`event: moment\ndata: ${JSON.stringify(quickLines ? { ...m, quickLines } : m)}\n\n`);
             crew?.submit(m, analyst.snapshot());
           }
           if (ev.seq % 15 === 0) {

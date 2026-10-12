@@ -54,6 +54,22 @@ function compactContext(snapshot) {
   };
 }
 
+// Models sometimes prefix a line with the persona or language ("Analyst: ...", "SW: ...").
+// Strip it so it is never shown on screen or read out by the voice.
+const LABELS = [
+  'analyst', 'analysis', 'casual', 'fan', 'commentator', 'commentary', 'storyteller', 'explainer',
+  'insight', 'key insight', 'insights', 'takeaway', 'key takeaway', 'tactical', 'tactical angle', 'note', 'summary', 'why it matters', 'line',
+  'mchambuzi', 'uchambuzi', 'shabiki', 'mtangazaji', 'ufahamu', 'maarifa', 'muhtasari',
+  'アナリスト', 'ファン', '実況', '解説', '分析', '洞察', 'ポイント', '要点',
+  'english', 'swahili', 'kiswahili', 'japanese', 'en', 'sw', 'ja',
+];
+const LABEL = new RegExp(`^\\s*[\\[(*]*(${LABELS.join('|')})[\\])*]*\\s*[:：\\-–—]\\s*`, 'i');
+export function cleanLine(text) {
+  let t = String(text ?? '').trim();
+  for (let i = 0; i < 2 && LABEL.test(t); i++) t = t.replace(LABEL, '').trim();
+  return t;
+}
+
 export function createCrew({ meta, llm, onOutput = () => {}, ...options }) {
   const cfg = { ...DEFAULTS, ...options, timeouts: { ...DEFAULTS.timeouts, ...options.timeouts } };
   const shared = { insights: [], lines: [], outputs: [] }; // shared state every agent can see
@@ -112,7 +128,7 @@ export function createCrew({ meta, llm, onOutput = () => {}, ...options }) {
       STORYTELLER,
       {
         moment: cm,
-        insight: explanation.why,
+        whyItMatters: explanation.why, // not called 'insight': the model kept echoing that word as a label
         keyNumbers: explanation.keyNumbers,
         persona: cfg.persona,
         languages: langs.map((code) => ({ code, name: LANGUAGE_NAMES[code] ?? code })),
@@ -129,7 +145,8 @@ export function createCrew({ meta, llm, onOutput = () => {}, ...options }) {
     );
     const lines = {};
     for (const lang of langs) {
-      lines[lang] = story.result?.lines.find((l) => l.lang === lang)?.text ?? fallbackLine(moment, lang, meta);
+      const text = cleanLine(story.result?.lines.find((l) => l.lang === lang)?.text);
+      lines[lang] = text || fallbackLine(moment, lang, meta);
     }
     return { explanation, lines, traces: [exp.trace, story.trace] };
   }

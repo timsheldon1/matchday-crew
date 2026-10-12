@@ -53,6 +53,14 @@ export default function App() {
     }
   }, [last]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Big moments are called out instantly from the Analyst's template line;
+  // the AI crew's richer line follows a few seconds later.
+  const quick = state.lastQuick;
+  useEffect(() => {
+    if (!voiceOn || !quick) return;
+    voiceRef.current.speak(quick.quickLines[lang] ?? quick.quickLines.en, lang, 1.2);
+  }, [quick]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const toggleVoice = () => {
     setVoiceOn((on) => {
       if (on) voiceRef.current.stop();

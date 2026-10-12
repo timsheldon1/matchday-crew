@@ -77,5 +77,12 @@ export async function createVoice({
     return audio;
   }
 
-  return { enabled: true, get mode() { return mode; }, region, synthesize };
+  // Fetch the sign-in token ahead of time so the first spoken line is not delayed.
+  async function warmup() {
+    const t0 = Date.now();
+    await authHeader();
+    return Date.now() - t0;
+  }
+
+  return { enabled: true, get mode() { return mode; }, region, synthesize, warmup };
 }
