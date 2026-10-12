@@ -18,7 +18,7 @@ Data (synthetic events) -> Analyst (stats, key moments) -> Explainer (why it mat
 The generator and Analyst have zero dependencies. Needs Node 22 or newer (required by the Foundry SDK).
 
 ```bash
-npm test                                          # 44 tests: generator, Analyst, crew, team shape and voice
+npm test                                          # 45 tests: generator, Analyst, crew, team shape and voice
 node src/cli.js generate --seed 42                # writes data/match-NNS-KLS-42.json and prints a box score
 node src/cli.js stats --seed 7 --home RVU --away HLA
 node src/cli.js stream --seed 42 --speed 30       # live NDJSON on stdout, 90 minutes in ~3 minutes
@@ -103,7 +103,7 @@ Three prompt agents run on a `gpt-5-mini` deployment in Microsoft Foundry, regis
 - **Live priorities:** a priority queue handles goals and big moments first and drops low-value moments when the crew falls behind live play (goals and recaps are never dropped)
 - **Guardrails:** strict JSON schema output, plus a grounding check that rejects any number not present in the Analyst's evidence. A rejected answer gets one retry with feedback
 - **Recovery:** on a timeout, an error or an ungrounded answer, the crew shows template text in all three languages so the screen never goes blank, and records what happened in a crew report (calls ok, retries, fallbacks, latency)
-- **Two call paths:** registered Foundry agents first; if they are not deployed, direct model calls with the same instructions
+- **Two call paths:** registered Foundry agents first, called by name and their latest version. If an agent call is rejected, that one call goes straight to the model with the same instructions and the next call tries the agent again. After 3 failures in a row that agent stays on direct calls, and the server log says why
 
 ```bash
 npm run crew:offline       # full match with template fallbacks, no Azure needed

@@ -38,18 +38,47 @@ export async function createFoundryLLM({ endpoint, deployment, mode = 'agent', c
   const { DefaultAzureCredential } = await import('@azure/identity');
   const project = new AIProjectClient(endpoint, credential ?? new DefaultAzureCredential());
   const openai = project.getOpenAIClient();
-  let agentModeWorks = mode === 'agent';
+  // Agent mode is tracked per agent, so one agent having trouble does not switch off the others.
+  // After 3 failures in a row an agent uses direct calls until the server restarts or agents are redeployed.
+  const MAX_AGENT_FAILURES = 3;
+  let agentModeWanted = mode === 'agent';
+  const agentFailures = new Map();
+  const agentVersions = new Map(); // name -> Promise<version string>
+  const usesAgent = (agent) => agentModeWanted && (agentFailures.get(agent.name) ?? 0) < MAX_AGENT_FAILURES;
 
   const textFormat = (agent) => ({
     format: { type: 'json_schema', name: agent.name.replace(/-/g, '_'), schema: agent.schema, strict: true },
   });
 
+  // The agent reference needs an explicit version: without one Foundry answered
+  // "Agent matchday-explainer with version  not found". We look up the latest version once and cache it.
+  function agentVersion(agent) {
+    if (!agentVersions.has(agent.name)) {
+      const p = project.agents.get(agent.name).then((a) => {
+        const v = a?.versions?.latest?.version;
+        if (!v) throw Object.assign(new Error(`agent ${agent.name} has no published version`), { status: 404 });
+        return String(v);
+      });
+      p.catch(() => agentVersions.delete(agent.name)); // look it up again next time
+      agentVersions.set(agent.name, p);
+    }
+    return agentVersions.get(agent.name);
+  }
+
   async function callAgent(agent, input, signal) {
+    const version = await agentVersion(agent);
     const res = await openai.responses.create(
       { input },
-      { body: { agent: { name: agent.name, type: 'agent_reference' } }, signal },
+      { body: { agent: { type: 'agent_reference', name: agent.name, version } }, signal },
     );
     return res.output_text;
+  }
+
+  function describeError(err) {
+    const status = err?.status ?? err?.statusCode ?? '';
+    const code = err?.code ?? err?.error?.code ?? '';
+    const msg = (err?.error?.message ?? err?.message ?? String(err)).split('\n')[0].slice(0, 300);
+    return [status, code, msg].filter(Boolean).join(' ');
   }
 
   async function callDirect(agent, input, signal) {
@@ -77,28 +106,35 @@ export async function createFoundryLLM({ endpoint, deployment, mode = 'agent', c
       return Date.now() - t0;
     },
     deployment,
-    get mode() { return agentModeWorks ? 'agent' : 'direct'; },
+    get mode() { return agentModeWanted && [...agentFailures.values()].every((n) => n < MAX_AGENT_FAILURES) ? 'agent' : 'direct'; },
+    modeFor(agent) { return usesAgent(agent) ? 'agent' : 'direct'; },
 
     // Returns parsed JSON from the agent. Throws on failure; the crew decides what to do.
-    async run(agent, payload, { timeoutMs = 12000 } = {}) {
+    async run(agent, payload, { timeoutMs = 12000, onMode } = {}) {
       const input = typeof payload === 'string' ? payload : JSON.stringify(payload);
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), timeoutMs);
       try {
         let text;
-        if (agentModeWorks) {
+        if (usesAgent(agent)) {
           try {
             text = await callAgent(agent, input, ac.signal);
+            agentFailures.set(agent.name, 0);
+            onMode?.('agent');
           } catch (err) {
             const status = err?.status ?? err?.statusCode;
-            // Only a missing or rejected agent switches mode. Rate limits and outages are handled by the crew.
+            // Timeouts, auth errors, rate limits and outages are handled by the crew, not by switching path.
             if (ac.signal.aborted || (status !== 404 && status !== 400)) throw err;
-            agentModeWorks = false;
-            console.warn(`[foundry] agent mode failed (${err.status ?? ''} ${err.message}). Using direct model calls.`);
+            const n = (agentFailures.get(agent.name) ?? 0) + 1;
+            agentFailures.set(agent.name, n);
+            const off = n >= MAX_AGENT_FAILURES ? ' Agent mode is now off for this agent.' : '';
+            console.warn(`[foundry] ${agent.name} agent call failed (${describeError(err)}), failure ${n}. Using a direct model call.${off}`);
             text = await callDirect(agent, input, ac.signal);
+            onMode?.('direct');
           }
         } else {
           text = await callDirect(agent, input, ac.signal);
+          onMode?.('direct');
         }
         return JSON.parse(text);
       } catch (err) {
@@ -126,7 +162,10 @@ export async function createFoundryLLM({ endpoint, deployment, mode = 'agent', c
         );
         out.push({ name: v.name ?? agent.name, version: v.version });
       }
-      agentModeWorks = true;
+      agentModeWanted = true;
+      agentFailures.clear();
+      agentVersions.clear();
+      for (const a of out) agentVersions.set(a.name, Promise.resolve(String(a.version)));
       return out;
     },
   };

@@ -79,14 +79,14 @@ export function createCrew({ meta, llm, onOutput = () => {}, ...options }) {
   const stats = { submitted: 0, handled: 0, dropped: 0, calls: 0, ok: 0, retried: 0, fallback: 0, latencyMs: [] };
 
   async function callWithGuard(agent, payload, evidence, timeoutMs, textsOf, validate = () => null) {
-    const trace = { agent: agent.name, mode: llm?.mode ?? 'offline', status: 'ok', latencyMs: 0, reason: null };
+    const trace = { agent: agent.name, mode: llm?.modeFor?.(agent) ?? llm?.mode ?? 'offline', status: 'ok', latencyMs: 0, reason: null };
     if (!llm) return { result: null, trace: { ...trace, status: 'fallback', reason: 'offline' } };
     let attemptPayload = payload;
     for (let attempt = 1; attempt <= 2; attempt++) {
       const t0 = Date.now();
       stats.calls++;
       try {
-        const result = await llm.run(agent, attemptPayload, { timeoutMs });
+        const result = await llm.run(agent, attemptPayload, { timeoutMs, onMode: (m) => { trace.mode = m; } });
         trace.latencyMs += Date.now() - t0;
         const problem = validate(result) ?? (() => {
           const bad = ungroundedNumbers(textsOf(result), evidence);
