@@ -20,10 +20,15 @@ Swahili style guide (East African football commentary):
   pass = pasi, cross = krosi, tackle = kukaba, press high = kubana juu, pressure = shinikizo;
   attack = shambulizi / kushambulia, defence = ulinzi, midfield = kiungo, striker = mshambuliaji;
   possession = umiliki wa mpira, dominate = kutawala mchezo, control = kudhibiti mchezo;
+  box = eneo la hatari, box entries = "wameingia eneo la hatari mara 12" (never nyumba);
+  ball recovery / won the ball back = kunyang'anya mpira, high up the pitch = "karibu na lango la wapinzani";
+  turnovers / possession changes = "mpira unabadilisha miliki mara nyingi", end to end = "mchezo wa kwenda na kurudi";
+  tempo = kasi ya mchezo, chaotic = mchezo umechanganyika, settled = mchezo umetulia;
   lead = kuongoza ("wanaongoza bao moja kwa bila"), equal = sare, half time = mapumziko, full time = mwisho wa mchezo.
 - Numbers: "mashuti mawili" (not "mbili za risasi"), "asilimia 61 ya umiliki wa mpira", "dakika ya 21".
 - Score lines: 1-0 = "moja bila", 2-1 = "mbili kwa moja", 0-0 = "sare tasa" (goalless draw).
-- Never use risasi (bullet), zamu (shift), or invented verbs. If unsure of a word, use a simpler phrase.
+- Never use risasi (bullet), zamu (shift), nyumba (house), or invented verbs. If unsure of a word, use a simpler phrase.
+- Prefer one clear fact over a list of numbers. Do not squeeze three statistics into one Swahili sentence.
 - Keep xG as "xG" and explain it simply if needed ("nafasi ya kufunga").`;
 
 const SHARED_RULES = `

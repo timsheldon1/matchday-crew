@@ -65,13 +65,26 @@ export async function createFoundryLLM({ endpoint, deployment, mode = 'agent', c
     return agentVersions.get(agent.name);
   }
 
+  // Foundry renamed the request field: older services read "agent", current ones reject it with
+  // "The 'agent' property is deprecated. Use 'agent_reference' instead." We send the new name and
+  // switch back once only if a service asks for the old one.
+  let refField = 'agent_reference';
   async function callAgent(agent, input, signal) {
     const version = await agentVersion(agent);
-    const res = await openai.responses.create(
-      { input },
-      { body: { agent: { type: 'agent_reference', name: agent.name, version } }, signal },
-    );
-    return res.output_text;
+    const ref = { type: 'agent_reference', name: agent.name, version };
+    try {
+      const res = await openai.responses.create({ input }, { body: { [refField]: ref }, signal });
+      return res.output_text;
+    } catch (err) {
+      const msg = err?.error?.message ?? err?.message ?? '';
+      const other = refField === 'agent_reference' ? 'agent' : 'agent_reference';
+      if ((err?.status === 400) && new RegExp(`Use '${other}'|unrecognized.*${refField}|unknown.*${refField}`, 'i').test(msg)) {
+        refField = other;
+        const res = await openai.responses.create({ input }, { body: { [refField]: ref }, signal });
+        return res.output_text;
+      }
+      throw err;
+    }
   }
 
   function describeError(err) {
