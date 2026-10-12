@@ -35,8 +35,9 @@ az extension add --name containerapp --upgrade --yes --only-show-errors
 az provider register --namespace Microsoft.App --wait; Check "Registering Microsoft.App"
 az provider register --namespace Microsoft.OperationalInsights --wait; Check "Registering Microsoft.OperationalInsights"
 
-$envExists = az containerapp env list -g $ResourceGroup --query "[?name=='$EnvName'] | length(@)" -o tsv
-if ($envExists -eq "0") {
+# Note: no pipes or parentheses inside --query; Windows passes az arguments through cmd.exe, which breaks them.
+$envNames = @(az containerapp env list -g $ResourceGroup --query "[].name" -o tsv)
+if ($envNames -notcontains $EnvName) {
   Step "Creating the Container Apps environment"
   az containerapp env create -n $EnvName -g $ResourceGroup -l $location --only-show-errors; Check "Creating the environment"
 }
@@ -50,8 +51,8 @@ $envVars = @(
   "MAX_CREW_STREAMS=4"
 )
 
-$appExists = az containerapp list -g $ResourceGroup --query "[?name=='$AppName'] | length(@)" -o tsv
-if ($appExists -eq "0") {
+$appNames = @(az containerapp list -g $ResourceGroup --query "[].name" -o tsv)
+if ($appNames -notcontains $AppName) {
   Step "Creating the Container App"
   az containerapp create -n $AppName -g $ResourceGroup --environment $EnvName `
     --image $Image --target-port 4000 --ingress external `
@@ -67,15 +68,21 @@ if ($appExists -eq "0") {
 
 Step "Giving the app's managed identity access to Foundry and Speech"
 $principal = az containerapp show -n $AppName -g $ResourceGroup --query identity.principalId -o tsv
-foreach ($role in @("Azure AI User", "Cognitive Services Speech User")) {
-  $has = az role assignment list --assignee $principal --scope $foundryId --role $role --query "length(@)" -o tsv
-  if ($has -eq "0") {
-    az role assignment create --role $role --assignee-object-id $principal --assignee-principal-type ServicePrincipal --scope $foundryId --only-show-errors | Out-Null
-    Check "Assigning $role"
-    Write-Host "Granted: $role"
-  } else {
-    Write-Host "Already has: $role"
-  }
+# Roles are assigned by their fixed built-in IDs: looking them up by name failed on some setups.
+#   Cognitive Services User (required): data access to the models, agents and Speech on this resource
+#   Azure AI User and Cognitive Services Speech User: narrower Foundry and Speech roles, added when available
+$roles = @(
+  @{ Name = "Cognitive Services User"; Id = "a97b65f3-24c7-4388-baec-2e87135dc908"; Required = $true },
+  @{ Name = "Azure AI User"; Id = "53ca6127-db72-4b80-b1b0-d745d6d5456d"; Required = $false },
+  @{ Name = "Cognitive Services Speech User"; Id = "f2dc8367-1007-4938-bd23-fe263f013447"; Required = $false }
+)
+$existingRoleIds = @(az role assignment list --assignee $principal --scope $foundryId --query "[].roleDefinitionId" -o tsv) -join " "
+foreach ($r in $roles) {
+  if ($existingRoleIds -like "*$($r.Id)*") { Write-Host "Already has: $($r.Name)"; continue }
+  az role assignment create --role $r.Id --assignee-object-id $principal --assignee-principal-type ServicePrincipal --scope $foundryId --only-show-errors | Out-Null
+  if ($LASTEXITCODE -eq 0) { Write-Host "Granted: $($r.Name)" }
+  elseif ($r.Required) { throw "Assigning $($r.Name) failed" }
+  else { Write-Host "Skipped: $($r.Name) (not available here; Cognitive Services User covers it)" -ForegroundColor Yellow }
 }
 
 $fqdn = az containerapp show -n $AppName -g $ResourceGroup --query properties.configuration.ingress.fqdn -o tsv

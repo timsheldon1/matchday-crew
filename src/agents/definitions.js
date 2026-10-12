@@ -4,6 +4,28 @@
 
 export const LANGUAGE_NAMES = { en: 'English', sw: 'Swahili', ja: 'Japanese' };
 
+// Swahili football vocabulary for the Storyteller and Recapper. The model's first attempts
+// produced literal translations ("mbili za risasi" for "two shots", "risasi" means bullets).
+// Reviewed by a native speaker: edit this list to tune the commentary.
+export const SWAHILI_GUIDE = `
+Swahili style guide (East African football commentary):
+- Write like a Kenyan radio commentator: short, lively, natural sentences. Do not translate English word by word.
+- Use standard football Swahili:
+  goal = goli / bao ("GOOLI!", "amefunga bao", "bao la kwanza", "bao la kusawazisha");
+  shot = shuti (plural mashuti), powerful shot = shuti kali, on target = lililolenga lango;
+  keeper = kipa / golikipa, save = kuokoa ("kipa ameokoa"), hit the post = kugonga mwamba;
+  chance = nafasi, clear chance = nafasi ya wazi, missed = amekosa / amepoteza nafasi;
+  corner = kona, penalty = penalti, free kick = mpira wa adhabu, offside = kuotea;
+  yellow card = kadi ya njano, red card = kadi nyekundu, sent off = ametolewa nje;
+  pass = pasi, cross = krosi, tackle = kukaba, press high = kubana juu, pressure = shinikizo;
+  attack = shambulizi / kushambulia, defence = ulinzi, midfield = kiungo, striker = mshambuliaji;
+  possession = umiliki wa mpira, dominate = kutawala mchezo, control = kudhibiti mchezo;
+  lead = kuongoza ("wanaongoza bao moja kwa bila"), equal = sare, half time = mapumziko, full time = mwisho wa mchezo.
+- Numbers: "mashuti mawili" (not "mbili za risasi"), "asilimia 61 ya umiliki wa mpira", "dakika ya 21".
+- Score lines: 1-0 = "moja bila", 2-1 = "mbili kwa moja", 0-0 = "sare tasa" (goalless draw).
+- Never use risasi (bullet), zamu (shift), or invented verbs. If unsure of a word, use a simpler phrase.
+- Keep xG as "xG" and explain it simply if needed ("nafasi ya kufunga").`;
+
 const SHARED_RULES = `
 Ground rules:
 - Use ONLY the facts in the input. Never invent players, events, numbers or history.
@@ -52,13 +74,14 @@ Write ONE on-screen commentary line per requested language:
 - At most 25 words each. Punchy, vivid, broadcast tone. Present tense.
 - Persona "casual": excitement and story first, light on numbers (at most one number).
 - Persona "analyst": lead with the insight and one or two key numbers.
-- Swahili: natural East African sports-commentary Swahili, not a word-for-word translation.
+- Swahili: natural East African sports-commentary Swahili, not a word-for-word translation. Follow the Swahili style guide below.
 - Japanese: natural Japanese broadcast style. Keep names in Latin letters.
 - Each language line should carry the same meaning, written natively.
 - Write only the line itself, as a commentator would say it on air. Never start with a label such as "Insight:",
   "Analyst:", "Fan:", "Takeaway:", "Commentator:" or a language name.
   The persona changes the tone, it is not part of the text.
-${SHARED_RULES}`,
+${SHARED_RULES}
+${SWAHILI_GUIDE}`,
   schema: {
     type: 'object',
     additionalProperties: false,
@@ -89,7 +112,8 @@ For each language:
 - recap: 80 to 120 words, a story with a beginning, turning point and end. Mention the score,
   at least one turning point, and why the result happened (use xG, momentum or control vs chaos).
 - playerOfTheMatch: the name of one player from the top-rated list, exactly as written.
-${SHARED_RULES}`,
+${SHARED_RULES}
+${SWAHILI_GUIDE}`,
   schema: {
     type: 'object',
     additionalProperties: false,
